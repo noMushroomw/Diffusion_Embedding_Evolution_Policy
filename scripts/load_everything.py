@@ -2,7 +2,7 @@ import os
 import torch
 import pickle
 from scripts.sac import SAC
-from scripts.action_embedding_net import StateActionEmbedding, ActionEmbedding
+from scripts.action_embedding_net import StateActionEmbedding
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -63,14 +63,11 @@ def load_offline_dataset(filename="./expert_data/halfcheetah_expert_dataset.pkl"
 def load_embedding_models(state_dim, action_dim, directory="./models"):
     """Load trained embedding models"""
     sa_embedding = StateActionEmbedding(state_dim, action_dim).to(device)
-    a_embedding = ActionEmbedding(action_dim).to(device)
-    
     sa_embedding.load_state_dict(torch.load(os.path.join(directory, "state_action_embedding.pt")))
-    a_embedding.load_state_dict(torch.load(os.path.join(directory, "action_embedding.pt")))
     
     print(f"Loaded embedding models from {directory}")
     
-    return sa_embedding, a_embedding
+    return sa_embedding
 
 
 # Function to get embedding for a new state-action pair
@@ -86,20 +83,5 @@ def get_state_action_embedding(state, action, model):
             action_tensor = action_tensor.unsqueeze(0)
         
         embedding = model(state_tensor, action_tensor)
-        
-        return embedding.cpu().numpy()
-    
-
-# Function to get embedding for a new action
-def get_action_embedding(action, model):
-    """Get embedding for a new action"""
-    with torch.no_grad():
-        action_tensor = torch.FloatTensor(action).to(device)
-        
-        # Handle single action
-        if action_tensor.dim() == 1:
-            action_tensor = action_tensor.unsqueeze(0)
-        
-        embedding = model(action_tensor)
         
         return embedding.cpu().numpy()

@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Normal
-import gym
+import gymnasium as gym
 import matplotlib.pyplot as plt
 from IPython.display import display, HTML
 from tqdm.notebook import tqdm

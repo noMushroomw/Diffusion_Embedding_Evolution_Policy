@@ -54,23 +54,21 @@ def save_offline_dataset(dataset, save_dir='./', filename="halfcheetah_expert_da
     
     
 # Save trained embedding models
-def save_embedding_models(sa_embedding, a_embedding, directory="./models"):
+def save_embedding_models(sa_embedding, directory="./models"):
     if not os.path.exists(directory):
         os.makedirs(directory)
     
     torch.save(sa_embedding.state_dict(), os.path.join(directory, "state_action_embedding.pt"))
-    torch.save(a_embedding.state_dict(), os.path.join(directory, "action_embedding.pt"))
     
     print(f"Saved embedding models to {directory}")
     
     
 # Save embeddings to file
-def save_embeddings(sa_embeddings, a_embeddings, directory="./embeddings", prefix=""):
+def save_embeddings(sa_embeddings, directory="./embeddings", prefix=""):
     if not os.path.exists(directory):
         os.makedirs(directory)
     
     # Save as numpy arrays
     np.save(os.path.join(directory, prefix + "state_action_embeddings.npy"), sa_embeddings)
-    np.save(os.path.join(directory, prefix + "action_embeddings.npy"), a_embeddings)
     
     print(f"Saved embeddings to {directory}")

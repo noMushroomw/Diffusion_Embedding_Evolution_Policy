@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
@@ -48,8 +49,9 @@ def generate_expert_trajectories(env, agent, num_trajectories=50, max_steps=1000
                 break
         
         trajectories.append(trajectory)
-        print(f"Trajectory {i+1}: {len(trajectory)} steps")
+        #print(f"Trajectory {i+1}: {len(trajectory)} steps")
     
+    print(f"Generated {len(trajectories)} expert trajectories")
     # Create offline RL dataset
     offline_dataset = {
         'states': np.array(all_states),
@@ -104,7 +106,7 @@ def create_offline_dataset(trajectories):
 
 
 # Generate embeddings for all data points
-def generate_all_embeddings(dataset, sa_embedding, a_embedding):
+def generate_all_embeddings(dataset, sa_embedding):
     # Convert to tensors
     states = torch.FloatTensor(dataset['states']).to(device)
     actions = torch.FloatTensor(dataset['actions']).to(device)
@@ -112,7 +114,6 @@ def generate_all_embeddings(dataset, sa_embedding, a_embedding):
     # Process in batches to avoid memory issues
     batch_size = 256
     sa_embeddings = []
-    a_embeddings = []
     
     for i in range(0, len(states), batch_size):
         batch_states = states[i:i+batch_size]
@@ -121,21 +122,18 @@ def generate_all_embeddings(dataset, sa_embedding, a_embedding):
         # Generate embeddings
         with torch.no_grad():
             batch_sa_embeddings = sa_embedding(batch_states, batch_actions)
-            batch_a_embeddings = a_embedding(batch_actions)
         
         # Convert to numpy and save
         sa_embeddings.append(batch_sa_embeddings.cpu().numpy())
-        a_embeddings.append(batch_a_embeddings.cpu().numpy())
     
     # Concatenate all batches
     sa_embeddings = np.concatenate(sa_embeddings)
-    a_embeddings = np.concatenate(a_embeddings)
     
-    return sa_embeddings, a_embeddings
+    return sa_embeddings
 
 
 # Visualize embeddings with t-SNE
-def visualize_embeddings(embeddings, title, n_samples=1000):
+def visualize_embeddings(embeddings, title, n_samples=1000, save_dir='./figures'):
     # Sample embeddings if too many
     if len(embeddings) > n_samples:
         indices = np.random.choice(len(embeddings), n_samples, replace=False)
@@ -151,12 +149,12 @@ def visualize_embeddings(embeddings, title, n_samples=1000):
     plt.figure(figsize=(10, 8))
     plt.scatter(embeddings_2d[:, 0], embeddings_2d[:, 1], alpha=0.6)
     plt.title(f"t-SNE visualization of {title}")
-    plt.savefig(f"{title}_tsne.png")
+    plt.savefig(os.path.join(save_dir, f"{title}.png"))
     plt.show()
 
 
 # visualize embeddings evolution for all intermediate steps
-def visualize_embeddings_evolution(embeddings_list, titles, file_name, n_samples=1000):
+def visualize_embeddings_evolution(embeddings_list, titles, file_name, n_samples=1000, save_dir='./figures'):
     """
     Visualize the evolution of embeddings over different training steps
     """
@@ -181,5 +179,5 @@ def visualize_embeddings_evolution(embeddings_list, titles, file_name, n_samples
         axes[i].set_title(f"t-SNE visualization of episode {10 * (i+1)}")
         axes[i].set_xlabel("t-SNE 1")
         axes[i].set_ylabel("t-SNE 2")
-    plt.savefig(file_name)
+    plt.savefig(os.path.join(save_dir, file_name))
     plt.show()        
