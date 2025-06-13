@@ -35,3 +35,6 @@ ENV/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# ignore figures for now
+/figures/

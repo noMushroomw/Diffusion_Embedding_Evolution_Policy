@@ -463,5 +463,5 @@ def render_policy(env_name, agent, max_steps=1000, save_path=''):
     print(f"Total reward: {total_reward:.2f}")
     
     # Save as GIF
-    display(save_frames_as_gif(frames))
+    display(save_frames_as_gif(frames, file_name=f"{env_name}.gif"))
     return frames
