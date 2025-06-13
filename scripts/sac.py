@@ -18,11 +18,14 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 figure_save_dir = './figures'
 if not os.path.exists(figure_save_dir):
     os.makedirs(figure_save_dir)
+    
+# I have to say that normally SAC is used for """continuous""" action spaces, but it can also be adapted for discrete action spaces.
+# For discrete action spaces, we can use a softmax policy
 
 # Define the neural network architecture for SAC
-class Actor(nn.Module):
+class ContinuousActor(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_dim=256, log_std_min=-20, log_std_max=2):
-        super(Actor, self).__init__()
+        super(ContinuousActor, self).__init__()
         
         self.log_std_min = log_std_min
         self.log_std_max = log_std_max
@@ -74,10 +77,45 @@ class Actor(nn.Module):
                 state = torch.FloatTensor(state).to(device).unsqueeze(0)
             action, _ = self.sample(state)
             return action.cpu().numpy()[0]
+        
+class DiscreteActor(nn.Module):
+    def __init__(self, state_dim, action_dim, hidden_dim=256):
+        super(DiscreteActor, self).__init__()
+        self.action_dim = action_dim
+        
+        self.fc1 = nn.Linear(state_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, action_dim)
+        
+    def forward(self, state):
+        x = F.relu(self.fc1(state))
+        x = F.relu(self.fc2(x))
+        logits = self.fc3(x)
+        return logits
+    
+    def sample(self, state):
+        logits = self.forward(state)
+        # Use softmax to get probabilities
+        prob = F.softmax(logits, dim=-1)
+        # Sample from the categorical distribution
+        action = torch.multinomial(prob, num_samples=1)
+        log_prob = F.log_softmax(logits, dim=-1).gather(1, action)
+        action_one_hot = F.one_hot(action.squeeze(1), num_classes=self.action_dim).float()
+        return action_one_hot, log_prob
+    
+    def get_action(self, state):
+        with torch.no_grad():
+            # Convert state to tensor if it's not already
+            if not isinstance(state, torch.Tensor):
+                state = torch.FloatTensor(state).to(device).unsqueeze(0)
+            logits = self.forward(state)
+            action = torch.argmax(logits, dim=1).cpu().numpy()[0]
+            return action
 
 class Critic(nn.Module):
-    def __init__(self, state_dim, action_dim, hidden_dim=256):
+    def __init__(self, state_dim, action_dim, hidden_dim=256, is_discrete=False):
         super(Critic, self).__init__()
+        self.is_discrete = is_discrete
         
         # Q1 architecture
         self.fc1 = nn.Linear(state_dim + action_dim, hidden_dim)
@@ -90,6 +128,9 @@ class Critic(nn.Module):
         self.q2 = nn.Linear(hidden_dim, 1)
         
     def forward(self, state, action):
+        if self.is_discrete and action.dim() == 1:
+            action = F.one_hot(action.long(), num_classes=action.shape[-1]).float()
+        
         # Concatenate state and action
         sa = torch.cat([state, action], 1)
         
@@ -158,17 +199,23 @@ class SAC:
         tau=0.005,
         gamma=0.99,
         alpha=0.2,
-        auto_entropy_tuning=True
+        auto_entropy_tuning=True,
+        is_discrete=False,
+        device=device
     ):
         self.gamma = gamma
         self.tau = tau
         self.alpha = alpha
         self.batch_size = batch_size
         self.action_space = action_space
+        self.is_discrete = is_discrete
         
-        self.actor = Actor(state_dim, action_dim, hidden_dim).to(device)
-        self.critic = Critic(state_dim, action_dim, hidden_dim).to(device)
-        self.critic_target = Critic(state_dim, action_dim, hidden_dim).to(device)
+        if is_discrete:
+            self.actor = DiscreteActor(state_dim, action_dim, hidden_dim).to(device)
+        else:
+            self.actor = ContinuousActor(state_dim, action_dim, hidden_dim).to(device)
+        self.critic = Critic(state_dim, action_dim, hidden_dim, is_discrete).to(device)
+        self.critic_target = Critic(state_dim, action_dim, hidden_dim, is_discrete).to(device)
         
         # Initialize target network with same weights
         for target_param, param in zip(self.critic_target.parameters(), self.critic.parameters()):
@@ -180,7 +227,11 @@ class SAC:
         # Automatic entropy tuning
         self.auto_entropy_tuning = auto_entropy_tuning
         if auto_entropy_tuning:
-            self.target_entropy = -torch.prod(torch.Tensor(action_space.shape).to(device)).item()
+            if is_discrete:
+                self.target_entropy = -np.log(1.0 / action_space.n)
+            else:
+                # For continuous actions, target entropy is -dim of action space
+                self.target_entropy = -torch.prod(torch.Tensor(action_space.shape).to(device)).item()
             self.log_alpha = torch.zeros(1, requires_grad=True, device=device)
             self.alpha_optimizer = optim.Adam([self.log_alpha], lr=lr)
         
@@ -190,8 +241,14 @@ class SAC:
         if evaluate:
             with torch.no_grad():
                 state = torch.FloatTensor(state).to(device).unsqueeze(0)
-                mu, _ = self.actor(state)
-                return torch.tanh(mu).cpu().numpy()[0]
+                if isinstance(self.actor, DiscreteActor):
+                    logits = self.actor(state)
+                    action = torch.argmax(logits, dim=1).cpu().numpy()[0]
+                    return action
+                elif isinstance(self.actor, ContinuousActor):
+                # For continuous actions, sample from the actor
+                    mu, _ = self.actor(state)
+                    return torch.tanh(mu).cpu().numpy()[0]
         else:
             return self.actor.get_action(state)
     
@@ -336,6 +393,9 @@ def train_record(env_name, agent, num_episodes, max_steps, eval_interval=10, rec
             next_state, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
             
+            if agent.is_discrete:
+                action = np.zeros(agent.action_space.n, dtype=np.float32)
+                action[np.argmax(action)] = 1.0  # Convert to one-hot encoding
             # Store the transition in the replay buffer
             agent.buffer.push(state, action, reward, next_state, float(done))
             
